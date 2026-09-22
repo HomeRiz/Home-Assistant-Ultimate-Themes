@@ -61,7 +61,11 @@ export const DashboardPreview: React.FC<DashboardPreviewProps> = ({
       {/* Scrim overlay for readability */}
       <div 
         className="absolute inset-0 z-[2] pointer-events-none transition-colors"
-        style={{ background: engine.backgroundScrim || 'linear-gradient(180deg, rgba(0,0,0,0.12) 0%, rgba(0,0,0,0.30) 100%)' }}
+        style={{ 
+          background: previewMode === 'light'
+            ? 'linear-gradient(180deg, rgba(255,255,255,0.45) 0%, rgba(240,243,250,0.70) 100%)'
+            : (engine.backgroundScrim || 'linear-gradient(180deg, rgba(0,0,0,0.12) 0%, rgba(0,0,0,0.30) 100%)')
+        }}
       />
 
       {/* Optional Neon Scanlines overlay */}
@@ -74,6 +78,7 @@ export const DashboardPreview: React.FC<DashboardPreviewProps> = ({
         theme={theme} 
         activeView={activeHeaderView} 
         setActiveView={setActiveHeaderView} 
+        previewMode={previewMode}
       />
 
       {/* Body: Sidebar + Main Lovelace Canvas */}
@@ -82,11 +87,12 @@ export const DashboardPreview: React.FC<DashboardPreviewProps> = ({
           theme={theme} 
           activeItem={sidebarItem}
           onSelectItem={setSidebarItem}
+          previewMode={previewMode}
         />
 
         {/* Dashboard Grid Container */}
         <main className="flex-1 overflow-y-auto p-4 sm:p-6">
-          <SmartHomeDashboard theme={theme} />
+          <SmartHomeDashboard theme={theme} previewMode={previewMode} />
         </main>
       </div>
     </div>
