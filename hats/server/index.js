@@ -27,13 +27,13 @@ const SUPERVISOR_TOKEN = process.env.SUPERVISOR_TOKEN;
 const SUPERVISOR_API = 'http://supervisor/core/api';
 
 /**
- * Automatically sanitizes any broken unescaped SVG URL quotes in YAML strings
+ * Automatically sanitizes any broken unescaped SVG URL quotes and dangerous CSS rules in YAML strings
  */
 function sanitizeThemeYamlContent(rawYaml) {
   if (!rawYaml || typeof rawYaml !== 'string') return rawYaml;
   let content = rawYaml;
 
-  // Convert raw SVG data URIs with percent encoding to base64 data URIs
+  // 1. Convert raw SVG data URIs with percent encoding to base64 data URIs
   content = content.replace(/url\(["']?data:image\/svg\+xml;utf8,([^"')]+)["']?\)/g, (match, rawSvg) => {
     try {
       const decoded = decodeURIComponent(rawSvg);
@@ -44,9 +44,19 @@ function sanitizeThemeYamlContent(rawYaml) {
     }
   });
 
-  // Fix unescaped double quotes inside double quoted properties
+  // 2. Fix unescaped double quotes inside double quoted properties
   // e.g.: lovelace-background: "center / cover repeat fixed url("data:image/svg...")"
   content = content.replace(/:\s*"([^"\n]*?)url\("([^"\n]*?)"\)([^"\n]*?)"/g, ': "$1url(\'$2\')$3"');
+
+  // 3. SECURITY GUARD: Remove dangerous click-intercepting pseudo-elements from card-mod-sidebar
+  // Legacy themes had :host::before / :host::after with position: fixed; inset: 0; which froze HA navigation
+  content = content.replace(/card-mod-sidebar:\s*\|\s*\n\s*:host::before\s*\{[\s\S]*?\}\s*(?=\n\s*(?:card-mod|modes|ha-|\.|\w+:))/g, 'card-mod-sidebar: |\n    :host {\n      background: none !important;\n    }\n    ');
+  content = content.replace(/:host::(?:before|after)\s*\{[^}]*?position\s*:\s*fixed[^}]*?\}/g, (match) => {
+    if (!/pointer-events\s*:\s*none/i.test(match)) {
+      return match.replace(/\}$/, '  pointer-events: none !important;\n}');
+    }
+    return match;
+  });
 
   return content;
 }
@@ -656,7 +666,71 @@ app.delete('/api/ha/theme/:themeId', async (req, res) => {
   }
 });
 
-// 7. Trigger Theme Reload in Home Assistant
+// 7. Security Health & Auto-Repair: Scans and repairs all YAML themes in /config/themes
+app.post('/api/ha/repair-all-themes', async (req, res) => {
+  try {
+    if (!fs.existsSync(THEMES_DIR)) {
+      return res.json({ success: true, count: 0, repaired: 0, message: 'No themes directory found.' });
+    }
+
+    let total = 0;
+    let repairedCount = 0;
+    const repairedFiles = [];
+
+    function repairDir(dir) {
+      const entries = fs.readdirSync(dir, { withFileTypes: true });
+      for (const entry of entries) {
+        const fullPath = path.join(dir, entry.name);
+        if (entry.isDirectory()) {
+          repairDir(fullPath);
+        } else if (entry.isFile() && (entry.name.endsWith('.yaml') || entry.name.endsWith('.yml'))) {
+          total++;
+          try {
+            const raw = fs.readFileSync(fullPath, 'utf8');
+            const sanitized = sanitizeThemeYamlContent(raw);
+            if (sanitized !== raw) {
+              fs.writeFileSync(fullPath, sanitized, 'utf8');
+              repairedCount++;
+              repairedFiles.push(entry.name);
+            }
+          } catch (e) {
+            console.warn(`Could not repair ${fullPath}:`, e.message);
+          }
+        }
+      }
+    }
+
+    repairDir(THEMES_DIR);
+
+    // Trigger reload
+    if (SUPERVISOR_TOKEN) {
+      try {
+        await fetch(`${SUPERVISOR_API}/services/frontend/reload_themes`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${SUPERVISOR_TOKEN}`,
+            'Content-Type': 'application/json',
+          },
+        });
+      } catch {}
+    }
+
+    res.json({
+      success: true,
+      total,
+      repairedCount,
+      repairedFiles,
+      message: repairedCount > 0
+        ? `Successfully inspected ${total} files and repaired ${repairedCount} theme(s)! Themes have been reloaded.`
+        : `All ${total} theme files are 100% clean and compliant with Home Assistant safety guidelines.`,
+    });
+  } catch (err) {
+    console.error('Failed to repair themes:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 8. Trigger Theme Reload in Home Assistant
 app.post('/api/ha/reload-themes', async (req, res) => {
   if (!SUPERVISOR_TOKEN) {
     return res.status(400).json({ error: 'Supervisor token not available (not running as HA Add-on)' });

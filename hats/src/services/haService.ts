@@ -205,6 +205,32 @@ export async function deleteHaTheme(themeId: string): Promise<boolean> {
 }
 
 /**
+ * Scans, repairs and auto-sanitizes all installed theme YAML files on disk in /config/themes
+ */
+export async function repairAllHaThemes(): Promise<{ success: boolean; total: number; repairedCount: number; repairedFiles?: string[]; message: string }> {
+  try {
+    const res = await fetch(getApiUrl('api/ha/repair-all-themes'), { method: 'POST' });
+    if (res.ok) {
+      return await res.json();
+    }
+    const errData = await res.json();
+    return {
+      success: false,
+      total: 0,
+      repairedCount: 0,
+      message: errData.error || 'Failed to repair themes',
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      total: 0,
+      repairedCount: 0,
+      message: err.message || 'Could not connect to HATS repair endpoint',
+    };
+  }
+}
+
+/**
  * Triggers a restart of Home Assistant Core
  */
 export async function restartHomeAssistant(): Promise<{ success: boolean; message: string }> {
@@ -222,3 +248,4 @@ export async function restartHomeAssistant(): Promise<{ success: boolean; messag
     };
   }
 }
+
