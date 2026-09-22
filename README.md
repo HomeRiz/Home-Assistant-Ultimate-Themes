@@ -32,9 +32,34 @@ engine that suits their material and bring their own world.
 
 ---
 
-## Install
+## How to Install
 
-### Step 1 — install card-mod
+You can install this project in **two ways from the same repository**:
+
+```
+                               ┌──────────────────────────────────────────────────┐
+                               │ https://github.com/HomeRiz/Home-Assistant-Ultimate-Themes
+                               └─────────┬───────────────────────────────┬────────┘
+                                         │                               │
+                      ┌──────────────────┴───────────────┐ ┌─────────────┴─────────────────┐
+                      │  METHOD 1: HATS ADD-ON (Ingress) │ │  METHOD 2: HACS THEME PACK    │
+                      │  Visual Designer, Live Sandbox,  │ │  Pure YAML theme pack         │
+                      │  1-Click Pack & Theme Installer  │ │  (154 Themes)                 │
+                      └──────────────────────────────────┘ └───────────────────────────────┘
+```
+
+### Option A (Recommended) — Install the HATS Add-on 🎩
+
+1. In Home Assistant, go to **Settings** → **Add-ons** → **Add-on Store**.
+2. Click the top-right menu (**⋮**) → **Repositories** → Paste `https://github.com/HomeRiz/Home-Assistant-Ultimate-Themes` → **Add**.
+3. Select **HATS - Home Assistant Theme Store** from the store list → Click **Install** → Toggle **Show in sidebar** → **Start**.
+4. Open **HATS** from your sidebar: you can visually design new themes (including kids & custom themes), customize blurs/palettes, or click **"Install Full Theme Pack"** to install all 154 themes with 1 click!
+
+---
+
+### Option B — Install via HACS (Theme Pack only)
+
+#### Step 1 — install card-mod
 
 **This theme does not work without it.** card-mod is what draws the glass and the
 backgrounds; without it you get the colours and nothing else, and no error
@@ -44,7 +69,7 @@ explaining why.
 
 Or in HACS, search for **card-mod** and download it.
 
-### Step 2 — install this theme
+#### Step 2 — install this theme pack
 
 [![Open this theme in HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=HomeRiz&repository=Home-Assistant-Ultimate-Themes&category=theme)
 
