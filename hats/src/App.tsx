@@ -101,6 +101,8 @@ export const App: React.FC = () => {
         {/* Top Navigation */}
         <Navbar
           activeTheme={activeTheme}
+          allThemes={themes}
+          onSelectTheme={setActiveThemeId}
           activeTab={activeTab}
           setActiveTab={setActiveTab}
           previewMode={previewMode}
