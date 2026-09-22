@@ -62,9 +62,24 @@ app.get('/api/ha/diagnostics', (req, res) => {
       hasCardModInConfig = /card-mod\.js/i.test(configContent);
     }
 
-    // Check installed community cards & resources
+    // Check installed community cards & resources on disk and storage
     const detectedCards = [];
     const hasHacs = fs.existsSync(HACS_CUSTOM_COMPONENTS);
+
+    const cardModJsPath = path.join(CONFIG_DIR, 'www', 'community', 'lovelace-card-mod', 'card-mod.js');
+    const cardModDir = path.join(CONFIG_DIR, 'www', 'community', 'lovelace-card-mod');
+    const cardModOnDisk = fs.existsSync(cardModJsPath) || fs.existsSync(cardModDir);
+
+    // Calculate or read hacstag
+    let cardModHacstag = '190927524421';
+    if (cardModOnDisk && fs.existsSync(cardModJsPath)) {
+      try {
+        const stats = fs.statSync(cardModJsPath);
+        cardModHacstag = `190927524${Math.floor(stats.mtimeMs / 1000).toString().slice(-4)}`;
+      } catch (e) {
+        // use default tag
+      }
+    }
 
     // Check lovelace resources storage
     let hasCardModInResources = false;
@@ -80,7 +95,7 @@ app.get('/api/ha/diagnostics', (req, res) => {
       }
     }
 
-    // Check www/community directories
+    // Check www/community directories on disk
     if (fs.existsSync(HACS_COMMUNITY_DIR)) {
       try {
         const communityFolders = fs.readdirSync(HACS_COMMUNITY_DIR);
@@ -93,7 +108,8 @@ app.get('/api/ha/diagnostics', (req, res) => {
       }
     }
 
-    const hasCardMod = hasCardModInConfig || hasCardModInResources;
+    const hasCardMod = hasCardModInConfig || hasCardModInResources || cardModOnDisk;
+    const cardModNeedsConfig = cardModOnDisk && !hasCardModInConfig;
     const themesExists = fs.existsSync(THEMES_DIR);
     let themesCount = 0;
     if (themesExists) {
@@ -112,13 +128,21 @@ app.get('/api/ha/diagnostics', (req, res) => {
       });
     }
 
-    if (!hasCardMod) {
+    if (cardModNeedsConfig) {
+      issues.push({
+        id: 'card_mod_needs_config',
+        severity: 'warning',
+        title: 'card-mod Installed but Missing in configuration.yaml',
+        description: 'card-mod was detected on disk! Auto-Fix will register extra_module_url in configuration.yaml to activate it.',
+        canAutoFix: true,
+      });
+    } else if (!hasCardMod) {
       issues.push({
         id: 'missing_card_mod',
         severity: 'warning',
-        title: 'card-mod Not Registered',
-        description: 'Advanced glassmorphism cards and custom card styles require lovelace-card-mod to render properly.',
-        canAutoFix: true,
+        title: 'card-mod Not Installed',
+        description: 'Advanced glassmorphism cards and custom CSS require lovelace-card-mod. Install via HACS first.',
+        canAutoFix: false,
       });
     }
 
@@ -127,8 +151,11 @@ app.get('/api/ha/diagnostics', (req, res) => {
       hasFrontend,
       hasThemesDirective,
       hasCardMod,
+      cardModOnDisk,
+      cardModHacstag,
       hasCardModInConfig,
       hasCardModInResources,
+      cardModNeedsConfig,
       hasHacs,
       themesExists,
       themesCount,
@@ -136,7 +163,7 @@ app.get('/api/ha/diagnostics', (req, res) => {
       detectedCards,
       issues,
       readyForThemes: hasThemesDirective,
-      readyForGlassmorphism: hasThemesDirective && hasCardMod,
+      readyForGlassmorphism: hasThemesDirective && (hasCardModInConfig || hasCardModInResources),
     });
   } catch (err) {
     console.error('Failed to run diagnostics:', err);
@@ -147,7 +174,7 @@ app.get('/api/ha/diagnostics', (req, res) => {
 // 3. 1-Click Auto-Fix configuration.yaml for Theme Support & card-mod
 app.post('/api/ha/fix-config', async (req, res) => {
   try {
-    const { addThemes = true, addCardMod = true } = req.body || {};
+    const { addThemes = true, addCardMod = true, hacstag } = req.body || {};
 
     if (!fs.existsSync(CONFIG_DIR)) {
       return res.status(400).json({ error: 'Config directory not found (/config)' });
@@ -162,6 +189,21 @@ app.post('/api/ha/fix-config', async (req, res) => {
       const backupPath = path.join(CONFIG_DIR, `configuration.yaml.hats_bak_${timestamp}`);
       fs.writeFileSync(backupPath, content, 'utf8');
     }
+
+    // Determine hacstag
+    let tag = hacstag;
+    if (!tag) {
+      const cardModJsPath = path.join(CONFIG_DIR, 'www', 'community', 'lovelace-card-mod', 'card-mod.js');
+      if (fs.existsSync(cardModJsPath)) {
+        try {
+          const stats = fs.statSync(cardModJsPath);
+          tag = `190927524${Math.floor(stats.mtimeMs / 1000).toString().slice(-4)}`;
+        } catch {}
+      }
+      if (!tag) tag = '190927524421';
+    }
+
+    const cardModUrl = `/hacsfiles/lovelace-card-mod/card-mod.js?hacstag=${tag}`;
 
     let modified = content;
     const hasFrontend = /^frontend\s*:/m.test(modified);
@@ -189,11 +231,11 @@ app.post('/api/ha/fix-config', async (req, res) => {
             // Append to existing extra_module_url list
             newFrontendContent = newFrontendContent.replace(
               /(extra_module_url\s*:\s*\n)/m,
-              `$1    - /hacsfiles/lovelace-card-mod/card-mod.js\n`
+              `$1    - ${cardModUrl}\n`
             );
           } else {
             // Add extra_module_url section
-            newFrontendContent = `${newFrontendContent}\n  extra_module_url:\n    - /hacsfiles/lovelace-card-mod/card-mod.js`;
+            newFrontendContent = `${newFrontendContent}\n  extra_module_url:\n    - ${cardModUrl}`;
           }
         }
 
@@ -204,7 +246,7 @@ app.post('/api/ha/fix-config', async (req, res) => {
       }
     } else {
       // Add brand new frontend block
-      const newBlock = `\n\n# Loaded by HATS (Home Assistant Theme Store)\nfrontend:\n  themes: !include_dir_merge_named themes\n  extra_module_url:\n    - /hacsfiles/lovelace-card-mod/card-mod.js\n`;
+      const newBlock = `\n\n# Loaded by HATS (Home Assistant Theme Store)\nfrontend:\n  themes: !include_dir_merge_named themes\n  extra_module_url:\n    - ${cardModUrl}\n`;
       modified = `${modified.trimEnd()}${newBlock}`;
     }
 
