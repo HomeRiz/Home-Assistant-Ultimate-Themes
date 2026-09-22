@@ -21,8 +21,65 @@ const WWW_DIR = path.join(CONFIG_DIR, 'www', 'ultimate-theme', 'backgrounds');
 const HACS_COMMUNITY_DIR = path.join(CONFIG_DIR, 'www', 'community');
 const HACS_CUSTOM_COMPONENTS = path.join(CONFIG_DIR, 'custom_components', 'hacs');
 const LOVELACE_RESOURCES = path.join(CONFIG_DIR, '.storage', 'lovelace_resources');
+const HACS_REPOSITORIES_FILE = path.join(CONFIG_DIR, '.storage', 'hacs.repositories');
 const SUPERVISOR_TOKEN = process.env.SUPERVISOR_TOKEN;
 const SUPERVISOR_API = 'http://supervisor/core/api';
+
+/**
+ * Dynamically resolves the exact card-mod resource URL and hacstag from the user's HA instance
+ */
+function resolveCardModResourceInfo() {
+  let exactUrl = null;
+  let hacstag = null;
+
+  // 1. First Priority: Check /config/.storage/lovelace_resources for exact registered entry
+  if (fs.existsSync(LOVELACE_RESOURCES)) {
+    try {
+      const raw = JSON.parse(fs.readFileSync(LOVELACE_RESOURCES, 'utf8'));
+      const items = raw?.data?.items || [];
+      const cardModItem = items.find(it => it.url && /card-mod\.js/i.test(it.url));
+      if (cardModItem && cardModItem.url) {
+        exactUrl = cardModItem.url;
+        const tagMatch = exactUrl.match(/hacstag=([a-zA-Z0-9_-]+)/);
+        if (tagMatch) hacstag = tagMatch[1];
+      }
+    } catch (e) {
+      console.debug('Error reading lovelace_resources:', e);
+    }
+  }
+
+  // 2. Second Priority: Check /config/.storage/hacs.repositories for repository "190927524"
+  if (!exactUrl && fs.existsSync(HACS_REPOSITORIES_FILE)) {
+    try {
+      const rawHacs = JSON.parse(fs.readFileSync(HACS_REPOSITORIES_FILE, 'utf8'));
+      const repos = rawHacs?.data || {};
+      const cardModRepo = repos['190927524'] || Object.values(repos).find(r => r.full_name === 'thomasloven/lovelace-card-mod');
+      if (cardModRepo) {
+        const rawVersion = cardModRepo.version_installed || cardModRepo.last_version || '4.2.1';
+        const cleanVersion = rawVersion.replace(/[^0-9]/g, '');
+        hacstag = `${cardModRepo.id || '190927524'}${cleanVersion}`;
+        exactUrl = `/hacsfiles/lovelace-card-mod/card-mod.js?hacstag=${hacstag}`;
+      }
+    } catch (e) {
+      console.debug('Error reading hacs.repositories:', e);
+    }
+  }
+
+  // 3. Check physical file on disk
+  const cardModJsPath = path.join(CONFIG_DIR, 'www', 'community', 'lovelace-card-mod', 'card-mod.js');
+  const cardModDir = path.join(CONFIG_DIR, 'www', 'community', 'lovelace-card-mod');
+  const onDisk = fs.existsSync(cardModJsPath) || fs.existsSync(cardModDir);
+
+  if (!exactUrl && onDisk) {
+    exactUrl = '/hacsfiles/lovelace-card-mod/card-mod.js';
+  }
+
+  return {
+    exactUrl: exactUrl || '/hacsfiles/lovelace-card-mod/card-mod.js',
+    hacstag: hacstag || '',
+    onDisk,
+  };
+}
 
 // Serve built frontend assets from dist
 const DIST_DIR = path.join(__dirname, '..', 'dist');
@@ -66,20 +123,8 @@ app.get('/api/ha/diagnostics', (req, res) => {
     const detectedCards = [];
     const hasHacs = fs.existsSync(HACS_CUSTOM_COMPONENTS);
 
-    const cardModJsPath = path.join(CONFIG_DIR, 'www', 'community', 'lovelace-card-mod', 'card-mod.js');
-    const cardModDir = path.join(CONFIG_DIR, 'www', 'community', 'lovelace-card-mod');
-    const cardModOnDisk = fs.existsSync(cardModJsPath) || fs.existsSync(cardModDir);
-
-    // Calculate or read hacstag
-    let cardModHacstag = '190927524421';
-    if (cardModOnDisk && fs.existsSync(cardModJsPath)) {
-      try {
-        const stats = fs.statSync(cardModJsPath);
-        cardModHacstag = `190927524${Math.floor(stats.mtimeMs / 1000).toString().slice(-4)}`;
-      } catch (e) {
-        // use default tag
-      }
-    }
+    // Dynamically resolve card-mod exact URL and hacstag from HA
+    const { exactUrl, hacstag: cardModHacstag, onDisk: cardModOnDisk } = resolveCardModResourceInfo();
 
     // Check lovelace resources storage
     let hasCardModInResources = false;
@@ -109,7 +154,7 @@ app.get('/api/ha/diagnostics', (req, res) => {
     }
 
     const hasCardMod = hasCardModInConfig || hasCardModInResources || cardModOnDisk;
-    const cardModNeedsConfig = cardModOnDisk && !hasCardModInConfig;
+    const cardModNeedsConfig = (cardModOnDisk || hasCardModInResources) && !hasCardModInConfig;
     const themesExists = fs.existsSync(THEMES_DIR);
     let themesCount = 0;
     if (themesExists) {
@@ -133,7 +178,7 @@ app.get('/api/ha/diagnostics', (req, res) => {
         id: 'card_mod_needs_config',
         severity: 'warning',
         title: 'card-mod Installed but Missing in configuration.yaml',
-        description: 'card-mod was detected on disk! Auto-Fix will register extra_module_url in configuration.yaml to activate it.',
+        description: `card-mod was detected! Auto-Fix will register '${exactUrl}' in configuration.yaml to activate it.`,
         canAutoFix: true,
       });
     } else if (!hasCardMod) {
@@ -153,6 +198,7 @@ app.get('/api/ha/diagnostics', (req, res) => {
       hasCardMod,
       cardModOnDisk,
       cardModHacstag,
+      cardModExactUrl: exactUrl,
       hasCardModInConfig,
       hasCardModInResources,
       cardModNeedsConfig,
@@ -174,7 +220,7 @@ app.get('/api/ha/diagnostics', (req, res) => {
 // 3. 1-Click Auto-Fix configuration.yaml for Theme Support & card-mod
 app.post('/api/ha/fix-config', async (req, res) => {
   try {
-    const { addThemes = true, addCardMod = true, hacstag } = req.body || {};
+    const { addThemes = true, addCardMod = true, exactUrl } = req.body || {};
 
     if (!fs.existsSync(CONFIG_DIR)) {
       return res.status(400).json({ error: 'Config directory not found (/config)' });
@@ -190,20 +236,12 @@ app.post('/api/ha/fix-config', async (req, res) => {
       fs.writeFileSync(backupPath, content, 'utf8');
     }
 
-    // Determine hacstag
-    let tag = hacstag;
-    if (!tag) {
-      const cardModJsPath = path.join(CONFIG_DIR, 'www', 'community', 'lovelace-card-mod', 'card-mod.js');
-      if (fs.existsSync(cardModJsPath)) {
-        try {
-          const stats = fs.statSync(cardModJsPath);
-          tag = `190927524${Math.floor(stats.mtimeMs / 1000).toString().slice(-4)}`;
-        } catch {}
-      }
-      if (!tag) tag = '190927524421';
+    // Dynamically pull exact card-mod URL from user's HA if not supplied
+    let cardModUrl = exactUrl;
+    if (!cardModUrl) {
+      const resolved = resolveCardModResourceInfo();
+      cardModUrl = resolved.exactUrl;
     }
-
-    const cardModUrl = `/hacsfiles/lovelace-card-mod/card-mod.js?hacstag=${tag}`;
 
     let modified = content;
     const hasFrontend = /^frontend\s*:/m.test(modified);
