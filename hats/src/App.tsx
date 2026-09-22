@@ -79,6 +79,7 @@ export const App: React.FC = () => {
               <ThemeEditor
                 theme={activeTheme}
                 onChange={updateActiveTheme}
+                onOpenExport={() => setIsExportOpen(true)}
               />
             </div>
 
@@ -162,6 +163,9 @@ export const App: React.FC = () => {
         isOpen={isExportOpen}
         onClose={() => setIsExportOpen(false)}
         theme={activeTheme}
+        onThemeSaved={(savedTheme) => {
+          updateActiveTheme({ isInstalled: true });
+        }}
       />
 
       {/* GitHub PR Submission Modal */}
