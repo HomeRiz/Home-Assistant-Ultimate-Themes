@@ -191,6 +191,11 @@ export const ThemeOverviewModal: React.FC<ThemeOverviewModalProps> = ({
 
         {/* Modal Main Area: Authentic Lovelace Dashboard Simulation */}
         <div className="flex-1 flex overflow-hidden relative">
+          {/* Live Custom CSS Injection */}
+          {theme.customCss && (
+            <style dangerouslySetInnerHTML={{ __html: theme.customCss }} />
+          )}
+
           {/* Dashboard Canvas Container */}
           <div className="flex-1 flex flex-col h-full overflow-hidden relative">
             {/* Background layer */}

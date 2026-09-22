@@ -44,6 +44,11 @@ export const DashboardPreview: React.FC<DashboardPreviewProps> = ({
 
   return (
     <div className="relative w-full h-full flex flex-col overflow-hidden select-none">
+      {/* Live Custom CSS Injection for real-time preview of keyframes, fonts, and shadows */}
+      {theme.customCss && (
+        <style dangerouslySetInnerHTML={{ __html: theme.customCss }} />
+      )}
+
       {/* Background layer */}
       <div 
         className="absolute inset-0 z-0 transition-all duration-300"
