@@ -10,9 +10,9 @@ if [ ! -d "/config/themes" ]; then
 fi
 
 # Ensure backgrounds directory exists
-if [ ! -d "/config/www/ultimate-theme/backgrounds" ]; then
-    echo "[INFO] Creating /config/www/ultimate-theme/backgrounds directory..."
-    mkdir -p /config/www/ultimate-theme/backgrounds
+if [ ! -d "/config/www/hats/backgrounds" ]; then
+    echo "[INFO] Creating /config/www/hats/backgrounds directory..."
+    mkdir -p /config/www/hats/backgrounds
 fi
 
 cd /app
