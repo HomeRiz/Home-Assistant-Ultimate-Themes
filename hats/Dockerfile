@@ -20,9 +20,10 @@ RUN npm install --omit=dev
 # Copy built frontend from builder stage
 COPY --from=builder /build/dist ./dist
 
-# Copy server code and translations
+# Copy server code, translations, and bundled themes
 COPY server ./server
 COPY translations ./translations
+COPY bundled ./bundled
 COPY config.yaml ./config.yaml
 
 # Copy run script
